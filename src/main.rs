@@ -49,8 +49,12 @@ enum Command {
     Describe(cmd::describe::Args),
     /// Invoke an agent with a prompt.
     Invoke(cmd::invoke::Args),
+    /// Interactive chat with an agent over the A2H chat protocol.
+    Chat(cmd::chat::Args),
     /// Stream per-agent activity: run start/end + every tool call.
     Logs(cmd::logs::Cmd),
+    /// Pause a deployed agent without removing it (scheduler off, re-enable with `deploy`).
+    Stop(cmd::stop::Args),
     /// Undeploy an agent.
     Undeploy(cmd::undeploy::Args),
     /// Undeploy all agents in a team (server endpoint required; not yet implemented).
@@ -79,7 +83,9 @@ fn main() {
         Command::List(args) => cmd::list::run(args, &ctx),
         Command::Describe(args) => cmd::describe::run(args, &ctx),
         Command::Invoke(args) => cmd::invoke::run(args, &ctx),
+        Command::Chat(args) => cmd::chat::run(args, &ctx),
         Command::Logs(args) => cmd::logs::run(args, &ctx),
+        Command::Stop(args) => cmd::stop::run(args, &ctx),
         Command::Undeploy(args) => cmd::undeploy::run(args, &ctx),
         Command::UndeployTeam(args) => cmd::stub::undeploy_team(args),
         Command::Health => cmd::health::run(&ctx),
