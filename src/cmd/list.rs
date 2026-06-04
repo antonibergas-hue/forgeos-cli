@@ -24,13 +24,14 @@ pub fn run(args: Args, ep: &Endpoint) -> Result<i32> {
         return Ok(0);
     }
     println!(
-        "{:<14}  {:<30}  {:<10}  {:<14}  {:<12}",
-        "AGENT_ID", "NAME", "STACK", "TYPE", "STATUS"
+        "{:<14}  {:<26}  {:<14}  {:<10}  {:<14}  {:<12}",
+        "AGENT_ID", "NAME", "NAMESPACE", "STACK", "TYPE", "STATUS"
     );
     println!(
-        "{}  {}  {}  {}  {}",
+        "{}  {}  {}  {}  {}  {}",
         "-".repeat(14),
-        "-".repeat(30),
+        "-".repeat(26),
+        "-".repeat(14),
         "-".repeat(10),
         "-".repeat(14),
         "-".repeat(12)
@@ -38,13 +39,17 @@ pub fn run(args: Args, ep: &Endpoint) -> Result<i32> {
     for a in agents {
         let id = a.get("agent_id").and_then(|v| v.as_str()).unwrap_or("?");
         let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let namespace = a
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default");
         let stack = a.get("stack").and_then(|v| v.as_str()).unwrap_or("?");
         let exec = a
             .get("execution_type")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
         let status = a.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-        println!("{id:<14}  {name:<30}  {stack:<10}  {exec:<14}  {status:<12}");
+        println!("{id:<14}  {name:<26}  {namespace:<14}  {stack:<10}  {exec:<14}  {status:<12}");
     }
     Ok(0)
 }

@@ -53,6 +53,9 @@ enum Command {
     Chat(cmd::chat::Args),
     /// Stream per-agent activity: run start/end + every tool call.
     Logs(cmd::logs::Cmd),
+    /// Inspect runtime-v2 runs by handle (status / watch).
+    #[command(subcommand)]
+    Runs(cmd::runs::RunsCmd),
     /// Pause a deployed agent without removing it (scheduler off, re-enable with `deploy`).
     Stop(cmd::stop::Args),
     /// Undeploy an agent.
@@ -85,6 +88,7 @@ fn main() {
         Command::Invoke(args) => cmd::invoke::run(args, &ctx),
         Command::Chat(args) => cmd::chat::run(args, &ctx),
         Command::Logs(args) => cmd::logs::run(args, &ctx),
+        Command::Runs(sub) => cmd::runs::run(sub, &ctx),
         Command::Stop(args) => cmd::stop::run(args, &ctx),
         Command::Undeploy(args) => cmd::undeploy::run(args, &ctx),
         Command::UndeployTeam(args) => cmd::stub::undeploy_team(args),

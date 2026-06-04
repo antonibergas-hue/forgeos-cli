@@ -40,6 +40,10 @@ struct Envelope {
 struct Event {
     ts: Option<String>,
     agent_id: Option<String>,
+    /// Runtime-v2 run handle (continuation id), when the event is part of a
+    /// durable run. Lets `--json` consumers correlate suspend/resume events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_id: Option<String>,
     #[serde(rename = "type")]
     kind: Option<String>,
     description: Option<String>,
