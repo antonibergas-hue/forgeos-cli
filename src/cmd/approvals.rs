@@ -46,24 +46,37 @@ struct RejectBody {
     reason: Option<String>,
 }
 
+/// POST an approval (shared by the `approve` subcommand and the interactive
+/// chat `[Y/n]` flow).
+pub fn approve(ep: &Endpoint, request_id: &str, notes: Option<&str>) -> Result<()> {
+    let _: Value = api::post_json(
+        ep,
+        &format!("/api/approvals/{request_id}/approve"),
+        &ApproveBody { notes: notes.map(str::to_string) },
+    )?;
+    Ok(())
+}
+
+/// POST a rejection (shared by the `reject` subcommand and the chat flow).
+pub fn reject(ep: &Endpoint, request_id: &str, reason: Option<&str>) -> Result<()> {
+    let _: Value = api::post_json(
+        ep,
+        &format!("/api/approvals/{request_id}/reject"),
+        &RejectBody { reason: reason.map(str::to_string) },
+    )?;
+    Ok(())
+}
+
 pub fn run(cmd: ApprovalsCmd, ep: &Endpoint) -> Result<i32> {
     match cmd {
         ApprovalsCmd::List { from_agent, short } => list(ep, from_agent, short),
         ApprovalsCmd::Approve { request_id, notes } => {
-            let _: Value = api::post_json(
-                ep,
-                &format!("/api/approvals/{request_id}/approve"),
-                &ApproveBody { notes },
-            )?;
+            approve(ep, &request_id, notes.as_deref())?;
             ui::ok(&format!("Approved {request_id}"));
             Ok(0)
         }
         ApprovalsCmd::Reject { request_id, reason } => {
-            let _: Value = api::post_json(
-                ep,
-                &format!("/api/approvals/{request_id}/reject"),
-                &RejectBody { reason },
-            )?;
+            reject(ep, &request_id, reason.as_deref())?;
             ui::ok(&format!("Rejected {request_id}"));
             Ok(0)
         }
