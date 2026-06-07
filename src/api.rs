@@ -110,8 +110,16 @@ fn normalize_remote(s: String) -> String {
 }
 
 fn client() -> Client {
+    // A blocking `--wait` invoke runs the full agentic loop server-side until it
+    // completes or pauses; with a reasoning model + large tool results that can
+    // exceed two minutes before the run parks. Default to 600s (tunable via
+    // FORGEOS_HTTP_TIMEOUT) so the client doesn't drop the connection mid-run.
+    let secs = std::env::var("FORGEOS_HTTP_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(600);
     Client::builder()
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(secs))
         .build()
         .expect("build reqwest client")
 }

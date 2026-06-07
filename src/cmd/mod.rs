@@ -10,6 +10,8 @@ pub mod health;
 pub mod invoke;
 pub mod list;
 pub mod logs;
+pub mod run_poll;
+pub mod runs;
 pub mod stop;
 pub mod stub;
 pub mod undeploy;
