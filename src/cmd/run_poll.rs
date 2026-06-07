@@ -96,7 +96,9 @@ const MAX_TRANSIENT_ERRORS: u32 = 5;
 /// Poll `GET /api/platform/runs/{run_id}` every ~2s until the run is no longer
 /// `running` (i.e. paused | completed | failed | unknown), and return that
 /// settled handle. Bounds consecutive transient GET errors so a dead server
-/// surfaces an error instead of spinning forever.
+/// surfaces an error instead of spinning forever. (Kept as the simple primitive;
+/// the chat flow uses `poll_until_actionable` to skip stale post-approve pauses.)
+#[allow(dead_code)]
 pub fn poll_until_settled(ep: &Endpoint, run_id: &str) -> Result<RunHandle> {
     let path = format!("/api/platform/runs/{run_id}");
     let mut transient = 0u32;
@@ -107,6 +109,55 @@ pub fn poll_until_settled(ep: &Endpoint, run_id: &str) -> Result<RunHandle> {
                 transient = 0;
                 if classify(h.status.as_deref()) != RunState::Running {
                     return Ok(h);
+                }
+            }
+            Err(e) => {
+                transient += 1;
+                if transient >= MAX_TRANSIENT_ERRORS {
+                    return Err(e);
+                }
+            }
+        }
+    }
+}
+
+/// Poll until the run is *actionable*: terminal (completed/failed/unknown), OR
+/// paused with at least one pending request we haven't handled yet. Crucially,
+/// a run that is still `paused` on an ALREADY-handled request (the resume is
+/// async — for a brief window after approving, the run still reads `paused`
+/// with the same request) is NOT actionable, so we keep waiting instead of
+/// re-approving a consumed request (which 404s). `handled` is the set of
+/// request_ids already approved/rejected this turn.
+pub fn poll_until_actionable(
+    ep: &Endpoint,
+    run_id: &str,
+    handled: &std::collections::HashSet<String>,
+) -> Result<RunHandle> {
+    let path = format!("/api/platform/runs/{run_id}");
+    let mut transient = 0u32;
+    loop {
+        thread::sleep(POLL_INTERVAL);
+        match api::get::<RunHandle>(ep, &path) {
+            Ok(h) => {
+                transient = 0;
+                match classify(h.status.as_deref()) {
+                    RunState::Running => continue,
+                    RunState::Paused => {
+                        let has_fresh = h.pending.as_ref().is_some_and(|ps| {
+                            ps.iter().any(|p| {
+                                p.request_id
+                                    .as_deref()
+                                    .is_some_and(|id| !handled.contains(id))
+                            })
+                        });
+                        if has_fresh {
+                            return Ok(h);
+                        }
+                        // Stale pause on an already-handled request — resume in
+                        // flight; keep waiting for it to progress.
+                        continue;
+                    }
+                    _ => return Ok(h), // Completed / Failed / Unknown
                 }
             }
             Err(e) => {

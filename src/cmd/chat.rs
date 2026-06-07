@@ -16,6 +16,7 @@ use anyhow::Result;
 use clap::Args as ClapArgs;
 use colored::Colorize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::io::{self, BufRead, Stdin, Write};
 
 use crate::api::{self, Endpoint};
@@ -176,6 +177,10 @@ pub fn run(args: Args, ep: &Endpoint) -> Result<i32> {
 /// (poll) or `paused` (prompt the operator, approve/reject, then poll again),
 /// so a turn that pauses several times is handled transparently.
 fn resolve_turn(ep: &Endpoint, mut handle: RunHandle, stdin: &Stdin) -> Result<TurnOutcome> {
+    // Request ids we've already approved/rejected this turn. Prevents re-acting
+    // on the same (already-consumed) request while the async resume is still in
+    // flight and the run momentarily still reads `paused` with that id.
+    let mut handled: HashSet<String> = HashSet::new();
     loop {
         match run_poll::classify(handle.status.as_deref()) {
             RunState::Completed => {
@@ -196,7 +201,7 @@ fn resolve_turn(ep: &Endpoint, mut handle: RunHandle, stdin: &Stdin) -> Result<T
                         "run is running but the server returned no run id to poll".to_string(),
                     ));
                 };
-                handle = run_poll::poll_until_settled(ep, &run_id)?;
+                handle = run_poll::poll_until_actionable(ep, &run_id, &handled)?;
             }
             RunState::Paused => {
                 let pendings = handle.pending.take().unwrap_or_default();
@@ -211,14 +216,20 @@ fn resolve_turn(ep: &Endpoint, mut handle: RunHandle, stdin: &Stdin) -> Result<T
                         ui::warn("pending approval has no request id; skipping");
                         continue;
                     };
+                    // Skip requests already approved/rejected (stale paused snapshot).
+                    if handled.contains(request_id) {
+                        continue;
+                    }
                     print_pending(p);
                     match prompt_approval(stdin)? {
                         Some(true) => {
                             approvals::approve(ep, request_id, None)?;
+                            handled.insert(request_id.to_string());
                             ui::ok(&format!("approved {request_id}"));
                         }
                         Some(false) => {
                             approvals::reject(ep, request_id, Some("rejected from chat"))?;
+                            handled.insert(request_id.to_string());
                             ui::warn(&format!("rejected {request_id}"));
                         }
                         None => {
@@ -235,7 +246,7 @@ fn resolve_turn(ep: &Endpoint, mut handle: RunHandle, stdin: &Stdin) -> Result<T
                         "run paused but the server returned no run id to poll".to_string(),
                     ));
                 };
-                handle = run_poll::poll_until_settled(ep, &run_id)?;
+                handle = run_poll::poll_until_actionable(ep, &run_id, &handled)?;
             }
             RunState::Unknown => {
                 // Treat as terminal: surface a result if any, else an error.
