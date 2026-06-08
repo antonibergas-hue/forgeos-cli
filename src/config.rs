@@ -274,6 +274,11 @@ pub struct Context {
     pub token: Option<String>,
     #[serde(default, rename = "auth")]
     pub auth_scheme: AuthScheme,
+    /// Identity the operator logs in AS for this context (multi-user). Sent to
+    /// the server as the `X-Forgeos-User` header so per-user credentials + MCP
+    /// connections resolve to this user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
 }
 
 const CTX_KEY: &str = "contexts";

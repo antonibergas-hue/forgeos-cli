@@ -22,6 +22,8 @@ pub struct Resolved {
     pub base: String,
     pub token: String,
     pub auth: AuthScheme,
+    /// Acting user identity (from the context's `user`), sent as X-Forgeos-User.
+    pub user: Option<String>,
     /// What we resolved against (for error messages).
     pub source: ResolvedSource,
 }
@@ -81,10 +83,17 @@ impl Endpoint {
             (None, None, None) => unreachable!(),
         };
 
+        // Identity comes only from a context's `user` (flags/lockfile carry none).
+        let user = match &source_for_url {
+            ResolvedSource::Context(_) => ctx.as_ref().and_then(|(_, c)| c.user.clone()),
+            _ => None,
+        };
+
         Ok(Resolved {
             base,
             token,
             auth,
+            user,
             source: source_for_url,
         })
     }
@@ -95,6 +104,17 @@ fn auth_header(req: RequestBuilder, token: &str, auth: &AuthScheme) -> RequestBu
     match auth {
         AuthScheme::Bearer => req.bearer_auth(token),
         AuthScheme::XApiKey => req.header("X-API-Key", token),
+    }
+}
+
+/// Attach ForgeOS identity headers: `X-Forgeos-User` carries the resolved
+/// context user (server resolves per-user credentials + MCP from it), and
+/// `x-forgeos-caller` attributes the request to the CLI for audit.
+fn identity_headers(req: RequestBuilder, r: &Resolved) -> RequestBuilder {
+    let req = req.header("x-forgeos-caller", "forgeos-cli");
+    match &r.user {
+        Some(u) if !u.is_empty() => req.header("X-Forgeos-User", u),
+        _ => req,
     }
 }
 
@@ -166,7 +186,7 @@ fn enrich_send(err: reqwest::Error, base: &str, method: &str, path: &str) -> any
 pub fn get<T: DeserializeOwned>(ep: &Endpoint, path: &str) -> Result<T> {
     let r = ep.resolved()?;
     let url = format!("{base}{path}", base = r.base);
-    let resp = auth_header(client().get(&url), &r.token, &r.auth)
+    let resp = identity_headers(auth_header(client().get(&url), &r.token, &r.auth), &r)
         .send()
         .map_err(|e| enrich_send(e, &r.base, "GET", path))?;
     let resp = check(resp, "GET", path)?;
@@ -181,7 +201,7 @@ pub fn post_json<B: Serialize, T: DeserializeOwned>(
 ) -> Result<T> {
     let r = ep.resolved()?;
     let url = format!("{base}{path}", base = r.base);
-    let resp = auth_header(client().post(&url), &r.token, &r.auth)
+    let resp = identity_headers(auth_header(client().post(&url), &r.token, &r.auth), &r)
         .json(body)
         .send()
         .map_err(|e| enrich_send(e, &r.base, "POST", path))?;
@@ -190,13 +210,31 @@ pub fn post_json<B: Serialize, T: DeserializeOwned>(
         .map_err(|e| anyhow!("decode POST {url}: {e}"))
 }
 
+/// PUT a JSON body. Used by `edit` to apply an in-place manifest update
+/// (PUT /api/platform/agents/{id}).
+pub fn put_json<B: Serialize, T: DeserializeOwned>(
+    ep: &Endpoint,
+    path: &str,
+    body: &B,
+) -> Result<T> {
+    let r = ep.resolved()?;
+    let url = format!("{base}{path}", base = r.base);
+    let resp = identity_headers(auth_header(client().put(&url), &r.token, &r.auth), &r)
+        .json(body)
+        .send()
+        .map_err(|e| enrich_send(e, &r.base, "PUT", path))?;
+    let resp = check(resp, "PUT", path)?;
+    resp.json::<T>()
+        .map_err(|e| anyhow!("decode PUT {url}: {e}"))
+}
+
 /// POST raw YAML body (Content-Type: text/yaml). Used by `deploy` so the
 /// server's AgentManifest.from_dict handles parsing — including resolving
 /// system_prompt file references that the Rust client pre-inlined.
 pub fn post_yaml<T: DeserializeOwned>(ep: &Endpoint, path: &str, yaml: &str) -> Result<T> {
     let r = ep.resolved()?;
     let url = format!("{base}{path}", base = r.base);
-    let resp = auth_header(client().post(&url), &r.token, &r.auth)
+    let resp = identity_headers(auth_header(client().post(&url), &r.token, &r.auth), &r)
         .header("Content-Type", "text/yaml")
         .body(yaml.to_string())
         .send()
@@ -209,7 +247,7 @@ pub fn post_yaml<T: DeserializeOwned>(ep: &Endpoint, path: &str, yaml: &str) -> 
 pub fn delete<T: DeserializeOwned>(ep: &Endpoint, path: &str) -> Result<T> {
     let r = ep.resolved()?;
     let url = format!("{base}{path}", base = r.base);
-    let resp = auth_header(client().delete(&url), &r.token, &r.auth)
+    let resp = identity_headers(auth_header(client().delete(&url), &r.token, &r.auth), &r)
         .send()
         .map_err(|e| enrich_send(e, &r.base, "DELETE", path))?;
     let resp = check(resp, "DELETE", path)?;

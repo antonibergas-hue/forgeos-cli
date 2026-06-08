@@ -47,6 +47,11 @@ enum Command {
     List(cmd::list::Args),
     /// Show full manifest + live status for one agent.
     Describe(cmd::describe::Args),
+    /// Edit an agent's manifest in $EDITOR and apply it in place (like `git commit`).
+    Edit(cmd::edit::Args),
+    /// Register / list / remove MCP servers.
+    #[command(subcommand)]
+    Mcp(cmd::mcp::McpCmd),
     /// Invoke an agent with a prompt.
     Invoke(cmd::invoke::Args),
     /// Interactive chat with an agent over the A2H chat protocol.
@@ -85,6 +90,8 @@ fn main() {
         Command::Deploy(args) => cmd::deploy::run(args, &ctx),
         Command::List(args) => cmd::list::run(args, &ctx),
         Command::Describe(args) => cmd::describe::run(args, &ctx),
+        Command::Edit(args) => cmd::edit::run(args, &ctx),
+        Command::Mcp(sub) => cmd::mcp::run(sub, &ctx),
         Command::Invoke(args) => cmd::invoke::run(args, &ctx),
         Command::Chat(args) => cmd::chat::run(args, &ctx),
         Command::Logs(args) => cmd::logs::run(args, &ctx),

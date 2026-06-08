@@ -52,6 +52,10 @@ pub enum ConfigCmd {
         /// Auth scheme expected by the server.
         #[arg(long, default_value = "bearer", value_parser = ["bearer", "x-api-key"])]
         auth: String,
+        /// Identity to log in as (sent as X-Forgeos-User; enables per-user
+        /// credentials + MCP, e.g. a personal JIRA assistant).
+        #[arg(long)]
+        user: Option<String>,
     },
     /// Switch the CLI to a defined context.
     UseContext {
@@ -139,6 +143,7 @@ pub fn run(cmd: ConfigCmd) -> Result<i32> {
             server,
             token,
             auth,
+            user,
         } => {
             let auth_scheme: config::AuthScheme = auth.parse()?;
             let server_norm = normalize_server(&server);
@@ -148,10 +153,15 @@ pub fn run(cmd: ConfigCmd) -> Result<i32> {
                     server: server_norm.clone(),
                     token,
                     auth_scheme: auth_scheme.clone(),
+                    user: user.clone(),
                 },
             )?;
+            let user_suffix = user
+                .as_deref()
+                .map(|u| format!(", user={u}"))
+                .unwrap_or_default();
             ui::ok(&format!(
-                "Stored context {name:?} -> {server_norm} (auth={auth_scheme})"
+                "Stored context {name:?} -> {server_norm} (auth={auth_scheme}{user_suffix})"
             ));
             // Auto-activate when this is the first context defined.
             let all = config::list_contexts()?;
@@ -188,21 +198,23 @@ pub fn run(cmd: ConfigCmd) -> Result<i32> {
                 return Ok(0);
             }
             println!(
-                "{:<6}  {:<14}  {:<11}  {}",
-                "CUR", "NAME", "AUTH", "SERVER"
+                "{:<6}  {:<14}  {:<11}  {:<14}  {}",
+                "CUR", "NAME", "AUTH", "USER", "SERVER"
             );
             println!(
-                "{}  {}  {}  {}",
+                "{}  {}  {}  {}  {}",
                 "-".repeat(6),
                 "-".repeat(14),
                 "-".repeat(11),
+                "-".repeat(14),
                 "-".repeat(40)
             );
             for (name, ctx) in all {
                 let marker = if Some(&name) == cur.as_ref() { "*" } else { "" };
                 println!(
-                    "{marker:<6}  {name:<14}  {auth:<11}  {server}",
+                    "{marker:<6}  {name:<14}  {auth:<11}  {user:<14}  {server}",
                     auth = ctx.auth_scheme,
+                    user = ctx.user.as_deref().unwrap_or("-"),
                     server = ctx.server,
                 );
             }
@@ -230,6 +242,7 @@ pub fn run(cmd: ConfigCmd) -> Result<i32> {
                     };
                     println!("server: {}", r.base);
                     println!("auth:   {}", r.auth);
+                    println!("user:   {}", r.user.as_deref().unwrap_or("-"));
                     println!("source: {source}");
                     Ok(0)
                 }

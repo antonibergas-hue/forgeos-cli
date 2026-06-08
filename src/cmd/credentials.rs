@@ -29,11 +29,34 @@ pub enum PutKind {
         #[arg(long, default_value = "default")]
         user_id: String,
     },
+    /// Store an Atlassian/JIRA Cloud credential (url + email + API token).
+    Jira {
+        /// JIRA base URL, e.g. https://your-org.atlassian.net.
+        #[arg(long)]
+        url: String,
+        /// Atlassian account email.
+        #[arg(long)]
+        email: String,
+        /// Atlassian Cloud API token.
+        #[arg(long)]
+        token: String,
+        /// User the secret is scoped to (defaults to the active context user).
+        #[arg(long, default_value = "default")]
+        user_id: String,
+    },
 }
 
 #[derive(Serialize)]
 struct PutGithub<'a> {
     pat: &'a str,
+    user_id: &'a str,
+}
+
+#[derive(Serialize)]
+struct PutJira<'a> {
+    url: &'a str,
+    email: &'a str,
+    token: &'a str,
     user_id: &'a str,
 }
 
@@ -43,6 +66,12 @@ pub fn run(cmd: CredentialsCmd, ep: &Endpoint) -> Result<i32> {
             let body = PutGithub { pat: &pat, user_id: &user_id };
             let _: Value = api::post_json(ep, "/api/credentials/github", &body)?;
             ui::ok(&format!("Stored github credential for user_id={user_id}"));
+            Ok(0)
+        }
+        CredentialsCmd::Put(PutKind::Jira { url, email, token, user_id }) => {
+            let body = PutJira { url: &url, email: &email, token: &token, user_id: &user_id };
+            let _: Value = api::post_json(ep, "/api/credentials/jira", &body)?;
+            ui::ok(&format!("Stored jira credential for user_id={user_id}"));
             Ok(0)
         }
     }
