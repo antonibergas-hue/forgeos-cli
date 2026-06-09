@@ -71,14 +71,27 @@ pub fn run(args: Args, ep: &Endpoint) -> Result<i32> {
         &InvokeRequest { prompt: &args.prompt, context: Value::Object(Default::default()) },
     )?;
 
-    render(&handle);
-
-    // If parked on approval and the user asked to wait it out, poll the run
-    // until it reaches a terminal state (after they approve elsewhere).
-    if args.wait_approvals && handle.status.as_deref() == Some("paused") {
-        if let Some(run_id) = handle.run_id.as_deref() {
-            return poll_until_terminal(ep, run_id);
+    // Worker-tier (runtime-v2) invokes return a handle BEFORE the run finishes
+    // (status "running"/"queued"); the final result lands on the continuation.
+    // Poll to completion and print it. Legacy inline runs have no status (or
+    // "completed") and already carry the result — render and return.
+    let status = handle.status.as_deref().unwrap_or("");
+    match status {
+        "running" | "queued" | "resuming" => {
+            if let Some(run_id) = handle.run_id.as_deref() {
+                return poll_until_terminal(ep, run_id, args.wait_approvals);
+            }
+            render(&handle);
         }
+        "paused" | "suspended" => {
+            render(&handle);
+            if args.wait_approvals {
+                if let Some(run_id) = handle.run_id.as_deref() {
+                    return poll_until_terminal(ep, run_id, true);
+                }
+            }
+        }
+        _ => render(&handle),
     }
     Ok(0)
 }
@@ -121,10 +134,11 @@ fn render(h: &RunHandle) {
     }
 }
 
-fn poll_until_terminal(ep: &Endpoint, run_id: &str) -> Result<i32> {
+fn poll_until_terminal(ep: &Endpoint, run_id: &str, wait_approvals: bool) -> Result<i32> {
     let path = format!("/api/platform/runs/{run_id}");
-    eprintln!("waiting for approval + resume of run {run_id} …");
-    loop {
+    eprintln!("⏳ waiting for run {run_id} …");
+    // Bounded so a stuck run doesn't hang the CLI forever (~10 min).
+    for _ in 0..300 {
         thread::sleep(Duration::from_secs(2));
         let st: RunHandle = match api::get(ep, &path) {
             Ok(v) => v,
@@ -133,7 +147,9 @@ fn poll_until_terminal(ep: &Endpoint, run_id: &str) -> Result<i32> {
         match st.status.as_deref() {
             Some("completed") => {
                 if let Some(r) = &st.result {
-                    println!("{r}");
+                    if !r.is_empty() {
+                        println!("{r}");
+                    }
                 }
                 ui::ok("run completed");
                 return Ok(0);
@@ -142,7 +158,15 @@ fn poll_until_terminal(ep: &Endpoint, run_id: &str) -> Result<i32> {
                 ui::err(st.error.as_deref().unwrap_or("run failed"));
                 return Ok(1);
             }
-            _ => continue, // running / paused — keep waiting
+            Some("paused") | Some("suspended") if !wait_approvals => {
+                // Parked on a human-approval gate and we weren't asked to wait
+                // it out — surface the approval info and stop polling.
+                render(&st);
+                return Ok(0);
+            }
+            _ => continue, // running / (paused while waiting approvals) — keep waiting
         }
     }
+    ui::warn("timed out waiting for the run; check `forgeos runs status` / `forgeos logs`");
+    Ok(0)
 }
